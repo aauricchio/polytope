@@ -33,7 +33,7 @@
 from .version import version as __version__
 
 from .polytope import (
-    Polytope, Region,
+    Polytope, Region, Ball,
     is_empty, is_fulldim, is_convex, is_adjacent, is_subset,
     reduce, separate, box2poly, grid_region,
     cheby_ball, bounding_box, envelope, extreme, qhull,

@@ -87,6 +87,25 @@ ABS_TOL = 1e-7
 # import matplotlib as mpl
 # from matplotlib import pyplot as plt
 
+class Ball(object):
+    def __init__(self, center, radius):
+        self.center = np.array(center)
+        self.radius = radius
+
+    def contains(self, point):
+        return np.linalg.norm(np.array(point) - self.center) <= self.radius
+
+    def plot(self, ax=None, center=None,**kwargs):
+        from matplotlib import pyplot as plt
+        ax = _newax(ax)
+        if center is None:
+            center = self.center
+
+        # project onto coords for 2D plotting
+        center = center[:2]
+
+        ax.add_artist(plt.Circle(center, self.radius, **kwargs))
+        return ax
 
 class Polytope(object):
     """A convex polytope, in half-space representation.
@@ -307,6 +326,79 @@ class Polytope(object):
     def copy(self):
         """Return copy of this Polytope."""
         return self.__copy__()
+    
+
+    def minkowski_sum(self, other, abs_tol=ABS_TOL):
+            """Compute the Minkowski sum of two polytopes.
+
+            @param other: Set to compute the Minkowski sum with.
+            @type other: L{Polytope}
+            @return: Polytope describing the Minkowski sum
+            """
+            if is_empty(other):
+                msg = 'Minkowski sum with empty polytope.'
+                raise Exception(msg)
+            if not isinstance(other, Polytope):
+                msg = 'Minkowski sum defined only with other Polytope.'
+                raise NotImplementedError(msg)
+            
+            V1 = extreme(self)
+            V2 = extreme(other)
+            if V1 is None or V2 is None:
+                msg = 'Minkowski sum requires bounded polytopes.'
+                raise Exception(msg)
+            Vsum = np.zeros((V1.shape[0] * V2.shape[0], V1.shape[1]))
+            k = 0 
+            for i in range(V1.shape[0]):
+                for j in range(V2.shape[0]):
+                    Vsum[k, :] = V1[i, :] + V2[j, :]
+                    k += 1
+            Psum = qhull(Vsum, abs_tol=abs_tol) # compute convex hull
+            return Psum
+
+    def pontryagin_diff(self, other, abs_tol=ABS_TOL)->Polytope:
+            """Compute the Pontryagin difference of two polytopes.
+
+            @param other: Set to subtract.
+            @type other: L{Polytope} or L{Ball}
+
+            @return: Polytope describing the Pontryagin difference
+            @rtype: L{Polytope}
+            """
+
+            if isinstance(other, Polytope):
+                if is_empty(other):
+                    return self.copy()
+                V2 = extreme(other)
+                if V2 is None:
+                    msg = 'Pontryagin difference requires bounded subtrahend.'
+                    raise Exception(msg)
+                A1 = self.A
+                b1 = self.b
+                m2 = V2.shape[0]
+                bnew = np.zeros(b1.shape)
+                for i in range(A1.shape[0]):
+                    min_val = np.inf
+                    for j in range(m2):
+                        val = np.dot(A1[i, :], V2[j, :])
+                        if val < min_val:
+                            min_val = val
+                    bnew[i] = b1[i] - min_val
+                Pdiff = Polytope(A1, bnew)
+                Pdiff = reduce(Pdiff, abs_tol=abs_tol)
+            elif isinstance(other, Ball):
+                A_new = self.A.copy()
+
+                f_norm = np.linalg.norm(A_new, axis=1)
+                b_new = self.b - other.radius * f_norm
+                Pdiff = Polytope(A_new, b_new)
+                Pdiff = reduce(Pdiff, abs_tol=abs_tol)
+            else:
+                msg = 'Pontryagin difference defined only with Polytope or Ball.'
+                raise NotImplementedError(msg)
+            
+            return Pdiff    
+
 
     @classmethod
     def from_box(cls, intervals=[]):
@@ -567,6 +659,7 @@ def _rotate(polyreg, i=None, j=None, u=None, v=None, theta=None, R=None):
     if polyreg._chebXc is not None:
         polyreg._chebXc = np.inner(polyreg._chebXc, R)
     return R
+
 
 
 def givens_rotation_matrix(i, j, theta, N):
@@ -1693,7 +1786,6 @@ def qhull(vertices, abs_tol=ABS_TOL):
     if A.size == 0:
         return Polytope()
     return Polytope(A, b, minrep=True, vertices=vert)
-
 
 def projection(poly1, dim, solver=None, abs_tol=ABS_TOL, verbose=0):
     """Projects a polytope onto lower dimensions.
