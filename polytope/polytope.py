@@ -106,6 +106,72 @@ class Ball(object):
 
         ax.add_artist(plt.Circle(center, self.radius, **kwargs))
         return ax
+    
+    def __str__(self):
+        return f"Single ball\n  center={self.center}, radius={self.radius}"
+    
+class Ellipse(object):
+    def __init__(self, shape_matrix, center=None):
+        if center is None:
+            center = np.zeros(shape_matrix.shape[0])
+
+        self.center = np.array(center)
+        self.shape_matrix = np.array(shape_matrix)
+
+    def contains(self, point):
+        diff = np.array(point) - self.center
+        val = diff.T @ np.linalg.inv(self.shape_matrix) @ diff
+        return val <= 1.0
+
+    def plot(self, ax=None, center=None, **kwargs):
+        from matplotlib import pyplot as plt
+        import matplotlib.patches as patches
+        ax = _newax(ax)
+        if center is None:
+            center = self.center
+
+        # project onto coords for 2D plotting
+        center = center[:2]
+        shape_2d = self.shape_matrix[:2, :2]
+
+        # Eigen-decomposition for axes and angle
+        eigvals, eigvecs = np.linalg.eig(shape_2d)
+        order = eigvals.argsort()[::-1]
+        eigvals = eigvals[order]
+        eigvecs = eigvecs[:, order]
+
+        width = 2 * math.sqrt(eigvals[0])
+        height = 2 * math.sqrt(eigvals[1])
+        angle = math.degrees(math.atan2(eigvecs[1, 0], eigvecs[0, 0]))
+
+        ellipse_patch = patches.Ellipse(center, width, height,
+                                        angle=angle, **kwargs)
+        ax.add_patch(ellipse_patch)
+        return ax
+    
+    def __str__(self):
+        """
+        Print ellipse information in a pretty way.  E = {x | (x-c)'Q^{-1}(x-c) <= 1}
+        """
+
+        mat_str = np.array2string(self.shape_matrix, precision=2, separator=', ', suppress_small=True)
+        mat_lines = mat_str.splitlines()
+        c_str = np.array2string(self.center, precision=2, separator=', ', suppress_small=True)
+
+        if np.allclose(self.center, 0):
+            preamble = "{ x | x^T "
+            postamble = " x <= 1 }"
+        else:
+            preamble = f"{{ x | (x - {c_str})^T "
+            postamble = f" (x - {c_str}) <= 1 }}"
+
+        result = [preamble + mat_lines[0]]
+        indent = " " * len(preamble)
+        for line in mat_lines[1:]:
+            result.append(indent + line)
+        result[-1] = result[-1] + postamble
+
+        return "\n".join(result)
 
 class Polytope(object):
     """A convex polytope, in half-space representation.
@@ -356,7 +422,7 @@ class Polytope(object):
             Psum = qhull(Vsum, abs_tol=abs_tol) # compute convex hull
             return Psum
 
-    def pontryagin_diff(self, other, abs_tol=ABS_TOL)->Polytope:
+    def pontryagin_diff(self, other, abs_tol=ABS_TOL):
             """Compute the Pontryagin difference of two polytopes.
 
             @param other: Set to subtract.
@@ -397,7 +463,10 @@ class Polytope(object):
                 msg = 'Pontryagin difference defined only with Polytope or Ball.'
                 raise NotImplementedError(msg)
             
-            return Pdiff    
+            if is_empty(Pdiff):
+                logger.warning("Pontryagin difference resulted in empty polytope.")
+            
+            return Pdiff
 
 
     @classmethod
