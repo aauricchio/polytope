@@ -172,6 +172,41 @@ class Ellipse(object):
         result[-1] = result[-1] + postamble
 
         return "\n".join(result)
+    
+    def support(self, direction):
+        """Compute support function in given direction.
+
+        @param direction: direction vector
+        @type direction: 1d array
+        @return: support function value
+        @rtype: float
+        """
+        d = np.array(direction)
+        Q = self.shape_matrix
+        c = self.center
+
+        val = np.sqrt(d.T @ Q @ d) + d.T @ c
+        return val
+    
+def project_ellipse(ellipse:Ellipse, dim):
+    """Project ellipse onto selected subspace.
+
+    @param ellipse: Ellipse to be projected
+    @type ellipse: L{Ellipse}
+    @param dim: dimensions to project onto (e.g. [1,2] for first two dimensions)
+    @type dim: list of int
+    @return: projected ellipse
+    @rtype: L{Ellipse}
+    """
+    Q = ellipse.shape_matrix
+    c = ellipse.center
+
+    dim = [d - 1 for d in dim]  # adjust for zero indexing (consistency with Polytope)
+
+    Qp = Q[np.ix_(dim, dim)]
+    cp = c[dim]
+
+    return Ellipse(Qp, cp)
 
 class Polytope(object):
     """A convex polytope, in half-space representation.
@@ -426,7 +461,7 @@ class Polytope(object):
             """Compute the Pontryagin difference of two polytopes.
 
             @param other: Set to subtract.
-            @type other: L{Polytope} or L{Ball}
+            @type other: L{Polytope} or L{Ball} or L{Ellipse}
 
             @return: Polytope describing the Pontryagin difference
             @rtype: L{Polytope}
@@ -457,6 +492,17 @@ class Polytope(object):
 
                 f_norm = np.linalg.norm(A_new, axis=1)
                 b_new = self.b - other.radius * f_norm
+                Pdiff = Polytope(A_new, b_new)
+                Pdiff = reduce(Pdiff, abs_tol=abs_tol)
+            elif isinstance(other, Ellipse):
+                A_new = self.A.copy()
+                b_new = self.b.copy()
+
+                for i in range(A_new.shape[0]):
+                    ai = A_new[i, :].reshape(-1, 1)
+                    support_val = other.support(ai.flatten())
+                    b_new[i] = b_new[i] - support_val
+                
                 Pdiff = Polytope(A_new, b_new)
                 Pdiff = reduce(Pdiff, abs_tol=abs_tol)
             else:
